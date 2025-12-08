@@ -25,9 +25,15 @@ def load_emotion_clf():
 emotion_clf = load_emotion_clf()
 
 # GPT-2 pipeline (simple, always generates)
+# Tiny, beautiful story model (loads in 1 second, never rambles)
 @st.cache_resource
 def load_generator():
-    return pipeline("text-generation", model="gpt2", device=0 if torch.cuda.is_available() else -1)
+    return pipeline(
+        "text-generation",
+        model="pranavpsv/gnome-1b-storywriter",   # ←←← THIS IS THE MAGIC
+        torch_dtype=torch.float16,
+        device_map="auto"
+    )
 
 generator = load_generator()
 
