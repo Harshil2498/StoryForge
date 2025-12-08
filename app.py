@@ -29,7 +29,7 @@ emotion_clf = load_emotion_clf()
 @st.cache_resource
 def load_generator():
     try:
-        model_name = "HuggingFaceH4/zephyr-7b-alpha"
+        model_name = "google/gemma-2b-it"
         quantization_config = BitsAndBytesConfig(
             load_in_8bit=True,
             llm_int8_enable_fp32_cpu_offload=True
