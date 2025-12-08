@@ -28,12 +28,27 @@ emotion_clf = load_emotion_clf()
 # Tiny, beautiful story model (loads in 1 second, never rambles)
 @st.cache_resource
 def load_generator():
-    return pipeline(
-        "text-generation",
-        model="pranavpsv/gnome-1b-storywriter",   # ←←← THIS IS THE MAGIC
-        torch_dtype=torch.float16,
-        device_map="auto"
-    )
+    try:
+        model_name = "mosaicml/mpt-7b-storywriter"
+        quantization_config = BitsAndBytesConfig(
+            load_in_8bit=True,
+            llm_int8_enable_fp32_cpu_offload=True
+        )
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            quantization_config=quantization_config,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+            low_cpu_mem_usage=True,
+            trust_remote_code=True  # Required for MPT
+        )
+        return pipeline("text-generation", model=model, tokenizer=tokenizer)
+    except Exception as e:
+        st.error(f"Model load failed: {e}. Falling back to simple mode.")
+        return pipeline("text-generation", model="gpt2")  # Backup
 
 generator = load_generator()
 
@@ -73,14 +88,13 @@ if prompt := st.chat_input("Start your story... (e.g., 'I feel lost in the rain'
             lang_map = {"English": "", "Español": "Escribe en español: ", "Français": "Écrivez en français: ", "हिंदी": "हिंदी में लिखें: ", "Deutsch": "Schreiben Sie auf Deutsch: "}
             emotion_map = {"sadness": "heartbreaking", "anger": "furious", "joy": "joyful", "fear": "terrifying", "love": "romantic", "surprise": "unexpected", "neutral": "mysterious"}
             emotion_adj = emotion_map.get(detected, "mysterious")
-            full_prompt = f"You are a poetic storyteller. Continue this story in {lang}, in a deeply {emotion_adj} and beautiful style. Output ONLY the story continuation, no introductions, no explanations:\n\n{prompt}"
-            output = generator(full_prompt, max_new_tokens=80, min_new_tokens=40, temperature=0.85, do_sample=True, repetition_penalty=1.2, top_p=0.9)
-            response = output[0]["generated_text"][len(full_prompt):].strip()  # Extract new text only
+            full_prompt = f"Continue this story in a {emotion_adj} and poetic style:\n\n{prompt}"
 
-            # Fallback (if ultra-rare short)
-            if len(response) < 20:
-                response = f"In the {emotion_adj} rain, you wander lost, but a spark of {detected} ignites a new path—whispers of adventure calling through the storm."
+            output = generator(full_prompt, max_new_tokens=120, min_new_tokens=50, temperature=0.8, do_sample=True, repetition_penalty=1.05)
+            response = output[0]["generated_text"][len(full_prompt):].strip()
 
+            if len(response) < 30:
+            response = f"The rain envelops you in its gentle {detected} embrace, washing away the edges of your sorrow. In the downpour, a quiet revelation blooms: loss is but the soil for new growth."
             st.write(response)
             st.session_state.messages.append({"role": "assistant", "content": response})
 
