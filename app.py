@@ -67,10 +67,9 @@ if prompt := st.chat_input("Start your story... (e.g., 'I feel lost in the rain'
             lang_map = {"English": "", "Español": "Escribe en español: ", "Français": "Écrivez en français: ", "हिंदी": "हिंदी में लिखें: ", "Deutsch": "Schreiben Sie auf Deutsch: "}
             emotion_map = {"sadness": "heartbreaking", "anger": "furious", "joy": "joyful", "fear": "terrifying", "love": "romantic", "surprise": "unexpected", "neutral": "mysterious"}
             emotion_adj = emotion_map.get(detected, "mysterious")
-            full_prompt = f"{lang_map.get(lang, '')}Continue this {emotion_adj} story: {prompt}. Make it poetic and immersive."
-
+            full_prompt = f"{lang_map.get(lang, '')}Write a short, beautiful, {emotion_adj} story continuation in a poetic style. Only output the story, no explanations:\n\n{prompt}"
             # Generate (always outputs)
-            output = generator(full_prompt, max_new_tokens=100, min_new_tokens=40, temperature=0.9, do_sample=True, repetition_penalty=1.1, num_return_sequences=1)
+            output = generator(full_prompt, max_new_tokens=80, min_new_tokens=40, temperature=0.9, do_sample=True, repetition_penalty=1.1, num_return_sequences=1)
             response = output[0]["generated_text"][len(full_prompt):].strip()  # Extract new text only
 
             # Fallback (if ultra-rare short)
