@@ -2,7 +2,7 @@ import streamlit as st
 import torch
 
 try:
-    from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline, BitsAndBytesConfig
+    from transformers import pipeline
 except ImportError as e:
     st.error(f"Transformers import failed: {e}")
     st.stop()
@@ -11,48 +11,30 @@ st.set_page_config(page_title="StoryForge by Harshil2498", layout="wide")
 st.title("🖋️ StoryForge")
 st.caption("Emotion-adaptive multilingual story co-writer. Built by Harshil2498 in 1 day 🚀")
 
-# Emotion classifier
+# Emotion classifier (fast)
 @st.cache_resource
 def load_emotion_clf():
     try:
         return pipeline("text-classification", 
                         model="j-hartmann/emotion-english-distilroberta-base", 
-                        top_k=3, device=0 if torch.cuda.is_available() else -1)
+                        top_k=3)
     except Exception as e:
-        st.error(f"Emotion model load failed: {e}. Using manual mood.")
+        st.error(f"Emotion model failed: {e}. Using manual mood.")
         return None
 
 emotion_clf = load_emotion_clf()
 
-# Phi-3 Mini model (faster, reliable)
+# GPT-2 pipeline (simple, always generates)
 @st.cache_resource
-def load_model():
-    try:
-        model_name = "microsoft/Phi-3-mini-4k-instruct"
-        quantization_config = BitsAndBytesConfig(
-            load_in_8bit=True,
-            llm_int8_enable_fp32_cpu_offload=True
-        )
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            quantization_config=quantization_config,
-            torch_dtype=torch.bfloat16,
-            device_map="auto",
-            low_cpu_mem_usage=True,
-            trust_remote_code=True  # Required for Phi-3
-        )
-        return model, tokenizer
-    except Exception as e:
-        st.error(f"Story model load failed: {e}. App restarting...")
-        st.rerun()
+def load_generator():
+    return pipeline("text-generation", model="gpt2", device=0 if torch.cuda.is_available() else -1)
+
+generator = load_generator()
 
 # Sidebar
 with st.sidebar:
     mood = st.select_slider("Starting mood", options=["auto", "joy", "sadness", "anger", "fear", "love", "surprise"])
-    lang = st.selectbox("Language", ["English", "Español", "Français", "हिन्दी", "Deutsch"])
+    lang = st.selectbox("Language", ["English", "Español", "Français", "हिंदी", "Deutsch"])
 
 # Chat history
 if "messages" not in st.session_state:
@@ -70,7 +52,7 @@ if prompt := st.chat_input("Start your story... (e.g., 'I feel lost in the rain'
         st.write(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Detecting emotion & crafting story... (3-8s)"):
+        with st.spinner("Crafting your story... (2-5s)"):
             # Detect emotion
             detected = mood if mood != "auto" else "neutral"
             if emotion_clf:
@@ -81,38 +63,23 @@ if prompt := st.chat_input("Start your story... (e.g., 'I feel lost in the rain'
                 except:
                     pass
 
-            # Prepare messages for Phi-3 pipeline (fixes empty)
-            model, tokenizer = load_model()
-            pipe = pipeline("text-generation", model=model, tokenizer=tokenizer)
-            messages = [
-                {"role": "system", "content": f"You are a masterful storyteller. Write in {lang}. Infuse with {detected} emotion. Keep concise (150 words max). Match user's style."},
-                {"role": "user", "content": prompt}
-            ]
-            generation_args = {
-                "max_new_tokens": 150,
-                "min_new_tokens": 50,
-                "temperature": 0.9,
-                "do_sample": True,
-                "return_full_text": False,  # Key: Only new text
-                "repetition_penalty": 1.05
-            }
+            # Build enhanced prompt for GPT-2 (forces story)
+            lang_map = {"English": "", "Español": "Escribe en español: ", "Français": "Écrivez en français: ", "हिंदी": "हिंदी में लिखें: ", "Deutsch": "Schreiben Sie auf Deutsch: "}
+            emotion_map = {"sadness": "heartbreaking", "anger": "furious", "joy": "joyful", "fear": "terrifying", "love": "romantic", "surprise": "unexpected", "neutral": "mysterious"}
+            emotion_adj = emotion_map.get(detected, "mysterious")
+            full_prompt = f"{lang_map.get(lang, '')}Continue this {emotion_adj} story: {prompt}. Make it poetic and immersive."
 
-            try:
-                output = pipe(messages, **generation_args)
-                response = output[0]["generated_text"].strip()
-            except:
-                response = ""  # Fallback trigger
+            # Generate (always outputs)
+            output = generator(full_prompt, max_new_tokens=100, min_new_tokens=40, temperature=0.9, do_sample=True, repetition_penalty=1.1, num_return_sequences=1)
+            response = output[0]["generated_text"][len(full_prompt):].strip()  # Extract new text only
 
+            # Fallback (if ultra-rare short)
             if len(response) < 20:
-                fallback = {
-                    "sadness": "The rain falls gently, each drop a whisper of sorrow echoing your lost heart. Streets blur into gray memories, but in the mist, a faint light emerges—perhaps a sign that even in loss, new paths await discovery.",
-                    "anger": "The rain pounds like fists of fury, fueling the storm within you. You splash through puddles, rage building with every step, ready to confront the shadows that haunt. Strength rises from the chaos, forging a fiercer you."
-                }
-                response = fallback.get(detected, "In the gentle rain, a sense of calm washes over, guiding lost souls toward hidden wonders. The world renews, offering fresh beginnings in every drop.")
+                response = f"In the {emotion_adj} rain, you wander lost, but a spark of {detected} ignites a new path—whispers of adventure calling through the storm."
 
             st.write(response)
             st.session_state.messages.append({"role": "assistant", "content": response})
 
 # Footer
 st.markdown("---")
-st.caption("💡 Powered by Phi-3-Mini + DistilRoBERTa emotion detection. GitHub: [Harshil2498/StoryForge](https://github.com/Harshil2498/StoryForge)")
+st.caption("💡 Powered by GPT-2 + DistilRoBERTa emotion detection. GitHub: [Harshil2498/StoryForge](https://github.com/Harshil2498/StoryForge)")
