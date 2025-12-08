@@ -1,9 +1,8 @@
 streamlit==1.39.0
-torch==2.4.1
+torch==2.6.0
 transformers==4.47.1
 peft==0.13.0
 accelerate==1.1.0
 bitsandbytes==0.44.0
 huggingface-hub==0.26.0
-safetensors==0.4.5
-tokenizers>=0.21,<0.22  # Lets pip pick the right one (e.g., 0.21.4 for 3.12)
+sentencepiece
