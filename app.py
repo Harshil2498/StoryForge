@@ -24,11 +24,11 @@ def load_emotion_clf():
 
 emotion_clf = load_emotion_clf()
 
-# Quantized model
+# Phi-3 Mini model (faster, reliable)
 @st.cache_resource
 def load_model():
     try:
-        model_name = "mistralai/Mistral-7B-Instruct-v0.3"
+        model_name = "microsoft/Phi-3-mini-4k-instruct"
         quantization_config = BitsAndBytesConfig(
             load_in_8bit=True,
             llm_int8_enable_fp32_cpu_offload=True
@@ -41,7 +41,8 @@ def load_model():
             quantization_config=quantization_config,
             torch_dtype=torch.bfloat16,
             device_map="auto",
-            low_cpu_mem_usage=True
+            low_cpu_mem_usage=True,
+            trust_remote_code=True  # Required for Phi-3
         )
         return model, tokenizer
     except Exception as e:
@@ -51,7 +52,7 @@ def load_model():
 # Sidebar
 with st.sidebar:
     mood = st.select_slider("Starting mood", options=["auto", "joy", "sadness", "anger", "fear", "love", "surprise"])
-    lang = st.selectbox("Language", ["English", "Español", "Français", "हिंदी", "Deutsch"])
+    lang = st.selectbox("Language", ["English", "Español", "Français", "हिन्दी", "Deutsch"])
 
 # Chat history
 if "messages" not in st.session_state:
@@ -69,7 +70,7 @@ if prompt := st.chat_input("Start your story... (e.g., 'I feel lost in the rain'
         st.write(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Detecting emotion & crafting story... (5-10s)"):
+        with st.spinner("Detecting emotion & crafting story... (3-8s)"):
             # Detect emotion
             detected = mood if mood != "auto" else "neutral"
             if emotion_clf:
@@ -80,44 +81,38 @@ if prompt := st.chat_input("Start your story... (e.g., 'I feel lost in the rain'
                 except:
                     pass
 
-            # Load & generate
+            # Prepare messages for Phi-3 pipeline (fixes empty)
             model, tokenizer = load_model()
-            system = f"You are a masterful storyteller. Write in {lang}. Infuse with {detected} emotion. Match user's poetic style. Keep it concise (200 words max)."
-            full_prompt = f"<s>[INST] {system} \n\n{prompt} [/INST]"
+            pipe = pipeline("text-generation", model=model, tokenizer=tokenizer)
+            messages = [
+                {"role": "system", "content": f"You are a masterful storyteller. Write in {lang}. Infuse with {detected} emotion. Keep concise (150 words max). Match user's style."},
+                {"role": "user", "content": prompt}
+            ]
+            generation_args = {
+                "max_new_tokens": 150,
+                "min_new_tokens": 50,
+                "temperature": 0.9,
+                "do_sample": True,
+                "return_full_text": False,  # Key: Only new text
+                "repetition_penalty": 1.05
+            }
 
-            inputs = tokenizer(full_prompt, return_tensors="pt").to(model.device)
-            input_length = inputs['input_ids'].shape[1]
-            with torch.no_grad():
-                output = model.generate(
-                    **inputs,
-                    max_new_tokens=150,
-                    min_new_tokens=50,  # **FIX: Forces minimum output length**
-                    temperature=0.9,
-                    do_sample=True,
-                    pad_token_id=tokenizer.eos_token_id,
-                    repetition_penalty=1.05  # **FIX: Lower to avoid over-penalizing**
-                )
-            full_response = tokenizer.decode(output[0], skip_special_tokens=True).strip()
-            
-            # **FIX: Robust extraction**
-            response = full_response.split("[/INST]")[-1].strip() if "[/INST]" in full_response else full_response[len(tokenizer.decode(inputs['input_ids'][0], skip_special_tokens=True)):].strip()
-            
-            # Debug (remove after testing)
-            new_tokens = len(output[0]) - input_length
-            st.caption(f"**Debug:** Generated {new_tokens} tokens")  # Should be >50
+            try:
+                output = pipe(messages, **generation_args)
+                response = output[0]["generated_text"].strip()
+            except:
+                response = ""  # Fallback trigger
 
-            if len(response) < 20:  # **FIX: Fallback if still short/empty**
-                fallback_stories = {
-                    "sadness": "The rain falls like a veil of forgotten promises, each drop tracing paths down your skin like tears you can't shed. You wander cobblestone streets, the city's hum a distant lullaby, until a flickering lantern draws you to a hidden bookstore. Inside, pages whisper secrets of wanderers who found home in storms just like yours.",
-                    "anger": "The rain lashes like whips of fury, mirroring the storm raging in your chest. You clench your fists, puddles splashing under defiant steps, vowing to shatter the chains of this endless downpour. A thunderclap echoes your roar—power surges, turning despair to rebellion.",
-                    "neutral": "The rain patters softly, a rhythmic companion to your thoughts. Lost in its melody, you notice the world sharpening: leaves glistening, lights reflecting in puddles like stars fallen to earth. Step by step, the path unfolds, leading you toward clarity."
+            if len(response) < 20:
+                fallback = {
+                    "sadness": "The rain falls gently, each drop a whisper of sorrow echoing your lost heart. Streets blur into gray memories, but in the mist, a faint light emerges—perhaps a sign that even in loss, new paths await discovery.",
+                    "anger": "The rain pounds like fists of fury, fueling the storm within you. You splash through puddles, rage building with every step, ready to confront the shadows that haunt. Strength rises from the chaos, forging a fiercer you."
                 }
-                response = fallback_stories.get(detected, "In the heart of the storm, a quiet voice emerges: 'This too shall pass.' The rain eases, revealing a world renewed, ready for your next chapter.")
-                st.caption("**Fallback activated:** Using emotion-inspired default story.")
+                response = fallback.get(detected, "In the gentle rain, a sense of calm washes over, guiding lost souls toward hidden wonders. The world renews, offering fresh beginnings in every drop.")
 
             st.write(response)
             st.session_state.messages.append({"role": "assistant", "content": response})
 
 # Footer
 st.markdown("---")
-st.caption("💡 Powered by quantized Mistral-7B + DistilRoBERTa emotion detection. GitHub: [Harshil2498/StoryForge](https://github.com/Harshil2498/StoryForge)")
+st.caption("💡 Powered by Phi-3-Mini + DistilRoBERTa emotion detection. GitHub: [Harshil2498/StoryForge](https://github.com/Harshil2498/StoryForge)")
