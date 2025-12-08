@@ -94,7 +94,7 @@ if prompt := st.chat_input("Start your story... (e.g., 'I feel lost in the rain'
             response = output[0]["generated_text"][len(full_prompt):].strip()
 
             if len(response) < 30:
-            response = f"The rain envelops you in its gentle {detected} embrace, washing away the edges of your sorrow. In the downpour, a quiet revelation blooms: loss is but the soil for new growth."
+               response = f"The rain envelops you in its gentle {detected} embrace, washing away the edges of your sorrow. In the downpour, a quiet revelation blooms: loss is but the soil for new growth."
             st.write(response)
             st.session_state.messages.append({"role": "assistant", "content": response})
 
