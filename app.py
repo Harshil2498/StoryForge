@@ -88,7 +88,15 @@ if prompt := st.chat_input("Start your story... (e.g., 'I feel lost in the rain'
             lang_map = {"English": "", "Español": "Escribe en español: ", "Français": "Écrivez en français: ", "हिंदी": "हिंदी में लिखें: ", "Deutsch": "Schreiben Sie auf Deutsch: "}
             emotion_map = {"sadness": "heartbreaking", "anger": "furious", "joy": "joyful", "fear": "terrifying", "love": "romantic", "surprise": "unexpected", "neutral": "mysterious"}
             emotion_adj = emotion_map.get(detected, "mysterious")
-            full_prompt = f"Continue this story in a {emotion_adj} and poetic style:\n\n{prompt}"
+            full_prompt = f"""You are a deeply emotional, poetic storyteller.
+            Write ONLY the continuation of this story in {lang}.
+            Make it beautiful, immersive, and filled with {detected} emotion.
+            Do not add any introductions or explanations.
+
+            Story so far:
+            {prompt}
+
+            Continue the story now:"""
 
             output = generator(full_prompt, max_new_tokens=120, min_new_tokens=50, temperature=0.8, do_sample=True, repetition_penalty=1.05)
             response = output[0]["generated_text"][len(full_prompt):].strip()
